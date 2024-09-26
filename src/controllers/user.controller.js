@@ -7,6 +7,13 @@ import { ApiResponse } from '../utils/ApiResponse.js'
 const generateAccessandRefreshTokens = async(userId) => {
     try {
         const user = await User.findById(userId)
+        const accessToken = user.generateAccessToken()
+        const refreshToken = user.generateRefreshToken()
+
+        user.refreshToken = refreshToken
+        await user.save({validateBeforeSave: false})
+
+        return {accessToken,refreshToken}
     } catch (error) {
         throw new ApiError(500,"Someting went wrong while generating access and refresh tokens")
     }
@@ -92,7 +99,7 @@ const loginUser = asyncHandler(async(req,res) => {
 
     const {email,username,password} = req.body
 
-    if(!username || !email) {
+    if(!username && !email) {
         throw new ApiError(400, "usrname or password is required")
     }
 
@@ -107,7 +114,58 @@ const loginUser = asyncHandler(async(req,res) => {
     if(!isPasswordValid) {
         throw new ApiError(401, "Password invalid")
     }
+    const {accessToken,refreshToken} = (await generateAccessandRefreshTokens(user._id))
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken" , refreshToken, options)
+    .json(
+        new ApiResponse(
+            200,
+            {
+                user:loginUser,accessToken,
+                refreshToken
+            },
+            "User logged In Successfully"
+        )
+    )
+
+    
+    
 
     
 })
-export {registerUser}
+const logoutUser = asyncHandler(async(req,res) =>{
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $set: {
+                refreshToken: undefined
+            }
+        },
+        {
+            new:true
+        }
+    )
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+    return res
+    .status(200)
+    .clearCookie("accessToken",options)
+    .clearCookie("refreshToken", options)
+    .json(new ApiResponse(200,{},"User logged Out"))
+})
+
+export {
+    registerUser,
+    loginUser,
+    logoutUser
+}
